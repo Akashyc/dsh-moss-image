@@ -199,4 +199,7 @@ LICENSE 已就位且 README 的开源说明与实现一致。
 
 - `node --check` 三个文件全过
 - `node --test` 12 项全过（尺寸、参数越界、错误翻译、文件名清洗与路径穿越）
-- `node install.mjs` 干跑输出正确，未实际改 profile
+- `node install.mjs --apply` 从 `github:Akashyc/dsh-moss-image` 装进 desktop profile 成功：
+  pnpm 解析 58 个包、`+ dsh-moss-image 0.1.0`，`node_modules/dsh-moss-image` 里
+  lib/、cordis.patch.yml、icon.svg、README、PLAN、LICENSE 齐全
+- 待人工验证：重启 dsh → 设置 → 插件 →「Moss 生图」

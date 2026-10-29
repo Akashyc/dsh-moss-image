@@ -27,12 +27,14 @@
 ## 安装
 
 ```bash
-node install.mjs             # 干跑：只打印要改什么，不动文件
-node install.mjs --apply     # 真装：改 profile 的 package.json，建 node_modules 软链
+node install.mjs                     # 干跑：只打印要改什么，不动文件
+node install.mjs --apply             # 真装：从 GitHub 拉包并写进 profile
+node install.mjs --from local --apply  # 从本地目录装（改代码时用，建软链）
 node install.mjs --uninstall --apply   # 卸掉
 ```
 
-默认装进 `$DSH_HOME/profiles/desktop`，可用 `--profile <名字>` 换。装完重启 dsh，
+默认装进 `$DSH_HOME/profiles/desktop`，依赖写 `github:Akashyc/dsh-moss-image`，
+可用 `--profile <名字>` 换 profile、`--pnpm <路径>` 指定 pnpm。装完重启 dsh，
 设置 → 插件 里会出现「Moss 生图」页。
 
 脚本不会自动备份 `package.json`；要留底先自己复制一份。
