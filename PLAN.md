@@ -2,7 +2,7 @@
 
 - 版本：v0.1（计划稿）
 - 日期：2026-10-29
-- 状态：未开工，等 Boss 一声「开工」
+- 状态：已实现（v0.1.0），待装进 profile 验证
 - 目标：在 DSH 里说一句「画一只橘猫」，就能出图；API key 与生图参数有界面可配
 
 ## 1. 需求
@@ -52,9 +52,11 @@
 dsh-moss-image/
   package.json          # dsh.bundle.patch + dsh.client 段
   cordis.patch.yml      # profile bundles 里 insert 自己
-  lib/index.js          # host：Config schema + image_generate 工具 + 图片路由
+  install.mjs           # 安装/卸载，默认干跑
+  lib/index.js          # host：Config schema + image_generate 工具 + 本地路由
+  lib/moss.js           # 纯逻辑：校验、请求体、错误翻译、文件名
   lib/client.js         # client：设置 tab + 输入框按钮
-  locale/zh.json en.json
+  test/moss.test.mjs    # 纯逻辑单测
   icon.svg
   README.md             # 用法与开源说明
   LICENSE               # MIT
@@ -171,11 +173,30 @@ LICENSE 已就位且 README 的开源说明与实现一致。
 
 ## 10. 待办清单
 
-- [ ] P0 包结构 + Config schema
-- [ ] P0 凭据读写
-- [ ] P1 接口调用 + 校验
-- [ ] P1 下载 + 落盘 + attachment
-- [ ] P2 设置 tab
-- [ ] P3 输入框按钮
-- [ ] P3 跨平台检查与 README 补全
+- [x] P0 包结构 + Config schema
+- [x] P0 凭据读写（`credentials.resolve/set`，写在插件的本地路由上）
+- [x] P1 接口调用 + 校验
+- [x] P1 下载 + 落盘 + attachment
+- [x] P2 设置 tab
+- [x] P3 输入框按钮
+- [x] P3 跨平台检查与 README 补全
 - [x] LICENSE（MIT）与 README 开源说明
+- [ ] 装进 profile，重启 dsh 后人工验一遍
+
+## 11. 实现记录
+
+落地时和计划不完全一致的地方，都记在这里：
+
+1. **不建 locale/。** 界面文案直接写在 `lib/client.js` 里，多一套 i18n 文件反而没人维护。要做英文再说。
+2. **输入框按钮按方案 A 实现，但更克制**：点一下把「画一张图：」塞进草稿并保留已输入内容，不直接发请求，也不替你按回车。方案 B（浮层直连生成）没做，理由见第 7 节。
+3. **密钥走本地路由而不是 remote 服务**：`POST /x-moss-image/key` 只接受同源请求（看 `sec-fetch-site`），值直接进凭据服务；`/state` 只回 `已配置 + 前 4 位 + 位数`。
+4. **图片存两份**：工作区那份给人看，`$DSH_HOME/dsh-moss-image/cache/` 那份给本地路由用（文件名是 24 位随机 hex，路由只服务这个模式），避免为了出图把任意路径暴露成 HTTP。
+5. **超时不自动重试**：`AbortSignal.timeout(timeoutMs)` 用一个，429/502 才标 retryable，超时单独提示「任务可能仍在执行」。
+6. **attachment 失败不算失败**：`saveImage` 抛错就吞掉，Markdown/路由链接仍是结果。
+7. **`prompt` 的清洗**：trim 后为空直接报错，超过 4000 字符本地就拦，不发请求。
+
+验证记录：
+
+- `node --check` 三个文件全过
+- `node --test` 12 项全过（尺寸、参数越界、错误翻译、文件名清洗与路径穿越）
+- `node install.mjs` 干跑输出正确，未实际改 profile

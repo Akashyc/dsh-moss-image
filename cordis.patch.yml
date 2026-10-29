@@ -1,0 +1,5 @@
+# dsh-moss-image 的 bundle 层：这个包列进 profile 的 dsh.profile.bundles 时应用。
+# 只插入一条自己的行，不改别人。
+- insert:
+    - id: moss-image
+      name: dsh-moss-image

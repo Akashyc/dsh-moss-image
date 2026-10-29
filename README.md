@@ -3,7 +3,7 @@
 给 DSH 用的 Moss 文生图插件：在对话里说一句「画一只橘猫坐在窗边」，就调 Moss API 出一张图，
 并把图直接显示在会话里。
 
-> 状态：计划已定，代码尚未开工。接口与设计见 [PLAN.md](./PLAN.md)。
+> 状态：已实现，等装进 profile 验证。设计与接口核实见 [PLAN.md](./PLAN.md)。
 
 ## 它能干什么
 
@@ -26,13 +26,16 @@
 
 ## 安装
 
-插件以标准 DSH bundle 形式安装：
+```bash
+node install.mjs             # 干跑：只打印要改什么，不动文件
+node install.mjs --apply     # 真装：改 profile 的 package.json，建 node_modules 软链
+node install.mjs --uninstall --apply   # 卸掉
+```
 
-1. 把本目录放进 profile 的依赖（`~/.dsh/profiles/<profile>/package.json`）
-2. 在 `dsh.profile.bundles` 里加上 `dsh-moss-image`
-3. 重启 DSH，在设置 → 插件里找到它
+默认装进 `$DSH_HOME/profiles/desktop`，可用 `--profile <名字>` 换。装完重启 dsh，
+设置 → 插件 里会出现「Moss 生图」页。
 
-安装脚本与 `cordis.patch.yml` 随 P0 一起提供。
+脚本不会自动备份 `package.json`；要留底先自己复制一份。
 
 ## 配置
 
@@ -40,7 +43,7 @@
 
 | 分组 | 项 | 说明 |
 |---|---|---|
-| 连接 | API Key | 存在 DSH 凭据服务里，不写进配置文件明文 |
+| 连接 | API Key | 在插件页「Moss 生图」里填一次；存进 DSH 凭据服务，不写进配置文件、不回显 |
 | | Base URL | 默认 `https://api.mosi.cn` |
 | | 超时 | 默认 900 秒，生图慢是这个接口的常态 |
 | 模型 | 默认模型 | base / sft / 各自的固定快照版 |
@@ -63,19 +66,24 @@
 
 模型会调用工具并带回图片。需要指定尺寸或种子时直接说，例如「横版 1536x1024，种子 42」。
 
-输入框左侧还有一个「生图」按钮，点一下会插入提示词模板，把画面描述填进去发出去即可。
+输入框左侧还有一个「生图」按钮：点一下把「画一张图：」模板塞进草稿并保留你已经写的内容，
+接着补画面描述发出去即可。
 
 ## 目录结构
 
 ```
 dsh-moss-image/
   package.json          # dsh.bundle.patch + dsh.client 段
-  cordis.patch.yml
-  lib/index.js          # host：配置、工具、图片路由
+  cordis.patch.yml      # profile bundles 里插一条自己的行
+  install.mjs           # 安装/卸载，默认干跑
+  lib/index.js          # host：配置、工具、本地路由
+  lib/moss.js           # 纯逻辑：参数校验、请求体、错误翻译、文件名
   lib/client.js         # client：设置页与输入框按钮
-  locale/               # 中英文案
+  test/moss.test.mjs    # 纯逻辑单测（node --test）
   icon.svg
-  PLAN.md               # 开发计划与接口核实记录
+  README.md
+  PLAN.md
+  LICENSE
 ```
 
 ## 已知限制

@@ -1,0 +1,39 @@
+{
+  "name": "dsh-moss-image",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Moss 文生图插件：在 dsh 里说一句要画什么，就出一张图",
+  "license": "MIT",
+  "author": "Akashyc",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "lib",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "PLAN.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check lib/index.js && node --check lib/moss.js && node --check lib/client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}
