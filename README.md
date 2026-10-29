@@ -56,7 +56,7 @@ node install.mjs --uninstall --apply   # 卸掉
 | | 可见水印 | 默认关 |
 | 落盘 | 保存到工作区 | 默认开 |
 | | 目录 | 默认 `images`，可填绝对路径 |
-| | 文件名模板 | 默认 `{date}-{time}-{slug}` |
+| | 文件名模板 | 默认 `{date}-{time}-{slug}-s{seed}`，seed 直接写进文件名 |
 
 ## 用法
 
