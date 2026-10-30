@@ -68,7 +68,7 @@ node install.mjs --uninstall --apply    # 卸掉
 ### 前置
 
 ```
-✓ 一个 Moss API Key
+✓ 一个 Moss API Key —— 去 https://platform.moss.cn/ 申请
 ✓ 能把包写进 profile 的 pnpm
 ```
 
