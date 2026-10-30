@@ -10,6 +10,8 @@ import {
     fileNameFor,
     parseSize,
     readImageUrl,
+    resolveConfig,
+    validateSettings,
     validateSize,
 } from '../lib/moss.js'
 
@@ -123,4 +125,63 @@ test('fileNameFor 挡住路径穿越', () => {
     assert.doesNotMatch(name, /\//u)
     assert.doesNotMatch(name, /\.\./u)
     assert.match(name, /\.png$/u)
+})
+
+test('validateSettings 归一化合法输入', () => {
+    const { value, errors } = validateSettings({
+        size: ' 1024x1024 ',
+        baseUrl: 'https://api.mosi.cn/',
+        model: 'moss-image-base-1.0',
+        numInferenceSteps: '30',
+        guidanceScale: '7.5',
+        seed: '42',
+        promptEnhance: true,
+    })
+    assert.deepEqual(errors, [])
+    assert.equal(value.size, '1024x1024')
+    assert.equal(value.baseUrl, 'https://api.mosi.cn')
+    assert.equal(value.numInferenceSteps, '30')
+    assert.equal(value.guidanceScale, '7.5')
+    assert.equal(value.seed, '42')
+    assert.equal(value.promptEnhance, true)
+})
+
+test('validateSettings 拦下越界尺寸和参数', () => {
+    const { errors } = validateSettings({
+        size: '2048x2048',
+        baseUrl: 'ftp://x',
+        model: 'nope',
+        numInferenceSteps: '0',
+        guidanceScale: '11',
+        seed: '-1',
+        imagesDir: '',
+    })
+    assert.equal(errors.length, 7, errors.join(' | '))
+    assert.ok(errors.some((e) => e.includes('总像素')))
+    assert.ok(errors.some((e) => e.includes('http(s)')))
+})
+
+test('validateSettings 保留留空语义', () => {
+    const { value, errors } = validateSettings({ numInferenceSteps: '', guidanceScale: '', seed: '' })
+    assert.deepEqual(errors, [])
+    assert.equal(value.numInferenceSteps, '')
+    assert.equal(value.guidanceScale, '')
+    assert.equal(value.seed, '')
+})
+
+test('resolveConfig 分得清「没填」和「填了空」', () => {
+    const defaults = { baseUrl: 'https://api.x', negativePrompt: 'nsfw', guidanceScale: '7', size: '1024x1024' }
+
+    // 清空负向词是有效操作，不该被默认值顶回来
+    assert.equal(resolveConfig({ negativePrompt: '' }, {}, defaults).negativePrompt, '')
+    // 留空步数/系数同样有效
+    assert.equal(resolveConfig({ guidanceScale: '' }, {}, defaults).guidanceScale, '')
+    // 清空 baseUrl 会让请求打到坏地址，回退默认
+    assert.equal(resolveConfig({ baseUrl: '' }, {}, defaults).baseUrl, 'https://api.x')
+    // 覆盖值优先于 schema 值
+    assert.equal(resolveConfig({ negativePrompt: 'blur' }, { negativePrompt: 'x' }, defaults).negativePrompt, 'blur')
+    // 两层都没填就用默认
+    assert.equal(resolveConfig({}, {}, defaults).negativePrompt, 'nsfw')
+    // schema 有值、覆盖层没填，用 schema 的值
+    assert.equal(resolveConfig({}, { size: '864x1152' }, defaults).size, '864x1152')
 })

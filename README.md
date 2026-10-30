@@ -87,7 +87,7 @@ node install.mjs --uninstall --apply    # 卸掉
 | | 超时 | 默认 900 秒，生图慢是这个接口的常态 |
 | 模型 | 默认模型 | base / sft / 各自的固定快照版 |
 | | 提示词增强 | 默认关 |
-| 生图 | 尺寸 | 长宽比 × 分辨率两档，见下节；也可手填 |
+| 生图 | 尺寸 | 下拉选预设（长宽比 × 低/高两档），也可手填宽x高 |
 | | 负向提示词 | 默认给一组通用负向词 |
 | | 步数 / 引导系数 / 种子 | 留空则用服务端默认 |
 | | 可见水印 | 默认关 |
@@ -166,7 +166,7 @@ dsh-moss-image/
   cordis.patch.yml      # profile bundles 里插一条自己的行
   install.mjs           # 安装/卸载，默认干跑
   lib/index.js          # host：配置、工具、本地路由
-  lib/moss.js           # 纯逻辑：参数校验、请求体、错误翻译、文件名
+  lib/moss.js           # 纯逻辑：参数校验、设置页校验、请求体、错误翻译、文件名
   lib/client.js         # client：设置页与输入框按钮
   test/moss.test.mjs    # 纯逻辑单测（node --test）
   icon.svg
