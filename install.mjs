@@ -48,9 +48,9 @@ async function exists(path) {
     }
 }
 
-function runPnpm() {
-    log(`  $ ${pnpmBin} install  (cwd: ${profileDir})`)
-    const result = spawnSync(pnpmBin, ['install'], {
+function runPnpm(args = ['install']) {
+    log(`  $ ${pnpmBin} ${args.join(' ')}  (cwd: ${profileDir})`)
+    const result = spawnSync(pnpmBin, args, {
         cwd: profileDir,
         stdio: 'inherit',
         shell: process.platform === 'win32',
@@ -61,7 +61,7 @@ function runPnpm() {
         return false
     }
     if (result.status !== 0) {
-        console.error(`\npnpm install 退出码 ${result.status}。`)
+        console.error(`\npnpm ${args.join(' ')} 退出码 ${result.status}。`)
         return false
     }
     return true
@@ -115,7 +115,7 @@ else log(`  - dependencies["${PKG}"] 已经是 "${depSpec}"，不用改`)
 if (!bundles.includes(PKG)) log(`  - dsh.profile.bundles 追加 "${PKG}"`)
 else log(`  - dsh.profile.bundles 里已有 "${PKG}"`)
 if (localMode) log(`  - 建立软链 node_modules/${PKG} → ${resolve(HERE)}`)
-else log('  - 跑一次 pnpm install 把包装进 node_modules')
+else log('  - 跑一次 pnpm install，再 pnpm update 拉到最新提交')
 log()
 log('注意：本脚本不会自动备份 package.json。要备份的话先自己复制一份。')
 
@@ -143,6 +143,10 @@ if (localMode) {
 if (runPnpm() === false) {
     console.error('\npackage.json 已经写好了，但 pnpm install 没成功。修好 pnpm 后重跑 `pnpm install` 即可。')
     process.exit(1)
+}
+// lockfile 会把 github 依赖钉在上次的 commit 上，单独 update 一次才能拿到最新。
+if (runPnpm(['update', PKG]) === false) {
+    log('  ！拉最新失败，按 lockfile 里已有的版本装上了。')
 }
 if (!(await exists(linkPath))) {
     console.error(`\npnpm 跑完了，但 ${linkPath} 还是不存在。检查 GitHub 仓库是否可访问、包名是否写对。`)
