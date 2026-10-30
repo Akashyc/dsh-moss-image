@@ -1,6 +1,6 @@
 {
   "name": "dsh-moss-image",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Moss 文生图插件：在 dsh 里说一句要画什么，就出一张图",
