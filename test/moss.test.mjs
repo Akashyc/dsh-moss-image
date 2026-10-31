@@ -7,11 +7,13 @@ import {
     DEFAULT_NEGATIVE_PROMPT,
     LIMITS,
     buildRequest,
+    compileLayout,
     explainError,
     fileNameFor,
     imagesDirProblem,
     parseSize,
     pickSeed,
+    promptRules,
     readImageUrl,
     resolveConfig,
     resolveImagesDir,
@@ -247,4 +249,58 @@ test('validateSettings 交叉校验保存位置与种子模式', () => {
     assert.match(validateSettings({ seedMode: 'fixed', seed: '' }).errors.join(), /固定种子/u)
     assert.deepEqual(validateSettings({ seedMode: 'follow', seed: '' }).errors, [])
     assert.match(validateSettings({ seedMode: 'sometimes' }).errors.join(), /种子模式/u)
+})
+
+// 官方布局生图文档的示例（1024x1024），换成左上角原点的框后应当一字不差地编译回去。
+const EXPLORE_LAYOUT = {
+    meta: ['poster'],
+    caption: 'A minimalist travel poster with a cream background, a blue mountain illustration, and the title EXPLORE at the top.',
+    items: [
+        { label: 'text', caption: 'Large dark-blue uppercase title centered at the top.', text: 'EXPLORE', box: [128, 96, 896, 224] },
+        { label: 'object', caption: 'A flat blue mountain illustration in the lower center.', box: [224, 320, 800, 896] },
+    ],
+}
+const EXPLORE_JSON = '{"summary":{"meta":["poster"],"canvas":"single","caption":"A minimalist travel poster with a cream background, a blue mountain illustration, and the title EXPLORE at the top."},"items":[{"label":"text","caption":"Large dark-blue uppercase title centered at the top.","text":"EXPLORE","bbox":[-416,-384,-288,384]},{"label":"object","caption":"A flat blue mountain illustration in the lower center.","bbox":[-192,-288,384,288]}],"bbox_coord_space":"abs_centralized","bbox_format":"yxyx"}'
+
+test('compileLayout 复现官方文档示例', () => {
+    assert.equal(compileLayout(EXPLORE_LAYOUT, 1024, 1024), EXPLORE_JSON)
+})
+
+test('compileLayout 按非正方形画布换算中心坐标', () => {
+    const json = JSON.parse(compileLayout({ caption: 'x', items: [{ label: 'object', caption: 'y', box: [0, 0, 1248, 1664] }] }, 1248, 1664))
+    assert.deepEqual(json.items[0].bbox, [-832, -624, 832, 624])
+    assert.equal(json.summary.meta, undefined)
+})
+
+test('compileLayout 拦下坏布局', () => {
+    const item = { label: 'object', caption: 'y', box: [0, 0, 10, 10] }
+    const cases = [
+        [null, /对象/u],
+        [{ items: [item] }, /caption/u],
+        [{ caption: 'x', items: [] }, /至少/u],
+        [{ caption: 'x', items: [{ ...item, box: [0, 0, 10] }] }, /4 个数字/u],
+        [{ caption: 'x', items: [{ ...item, box: [10, 0, 0, 10] }] }, /x1 < x2/u],
+        [{ caption: 'x', items: [{ ...item, box: [0, 0, 2000, 10] }] }, /超出画布/u],
+        [{ caption: 'x', items: [{ label: 'text', caption: 'title', box: [0, 0, 10, 10] }] }, /text/u],
+    ]
+    for (const [layout, keyword] of cases) assert.throws(() => compileLayout(layout, 1024, 1024), keyword)
+})
+
+test('buildRequest 用布局时发编译后的 JSON 并关掉智能改写', () => {
+    const { body, layout } = buildRequest({ prompt: '海报', layout: EXPLORE_LAYOUT, size: '1024x1024', prompt_enhance: true })
+    assert.equal(layout, true)
+    assert.equal(body.prompt, EXPLORE_JSON)
+    assert.equal(body.prompt_enhance, false)
+    assert.equal(buildRequest({ prompt: '海报', size: '1024x1024', prompt_enhance: true }).body.prompt_enhance, true)
+})
+
+test('promptRules 四种开关组合写法各不相同', () => {
+    const both = promptRules({ rewrite: true, english: true })
+    assert.match(both, /英文描述/u)
+    assert.match(both, /别默认写成白底/u)
+    assert.doesNotMatch(promptRules({ rewrite: true, english: false }), /英文/u)
+    assert.match(promptRules({ rewrite: false, english: true }), /忠实翻译成英文/u)
+    const raw = promptRules({ rewrite: false, english: false })
+    assert.match(raw, /原样传入/u)
+    assert.doesNotMatch(raw, /扩写成/u)
 })

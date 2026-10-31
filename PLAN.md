@@ -224,6 +224,13 @@ LICENSE 已就位且 README 的开源说明与实现一致。
     只在成功出图后更新；工具多一个 `new_seed`（用户说「换一张」时传）。优先级：本次 `seed` > `new_seed` > 模式。
     回显标明种子来源；沿用种子但尺寸或模型变了会提示构图会变。只存内存，重启 DSH 后每个会话第一张重新随机。
     老配置里填过固定 `seed` 的，自动推断为 `fixed`。
+16. **提示词开关 + 布局生图**：对比官方 Playground 发现，DeepSeek 扩写时自己定了「站姿、影棚光、全身」，
+    把服务端智能改写能发挥的空间占死了。于是加 `promptRewrite`（让 DeepSeek 扩写）与 `promptEnglish`（写成英文），
+    四种组合由 `promptRules` 生成 prompt 参数说明；扩写规则里明确「别默认白底、影棚光、呆板站姿」。
+    `layoutEnabled` 开放 `layout` 参数：模型写左上角原点的 `[x1,y1,x2,y2]` 像素框，`compileLayout` 换成接口要的
+    中心坐标 `yxyx` 整数框并序列化为 prompt（依据 platform.moss.cn/docs/reference/layout-image-generation，单测逐字节复现官方示例）；
+    布局请求强制 `prompt_enhance: false`，免得 JSON 被改写成散文。工具描述随这些设置（及默认尺寸）变化：
+    `ctx.tools.register` 返回注销函数，设置保存后注销旧工具、按新设置重注册。
 
 验证记录：
 
