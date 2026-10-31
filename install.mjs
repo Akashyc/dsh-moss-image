@@ -114,7 +114,7 @@ if (deps[PKG] !== depSpec) log(`  - dependencies["${PKG}"] = "${depSpec}"`)
 else log(`  - dependencies["${PKG}"] 已经是 "${depSpec}"，不用改`)
 if (!bundles.includes(PKG)) log(`  - dsh.profile.bundles 追加 "${PKG}"`)
 else log(`  - dsh.profile.bundles 里已有 "${PKG}"`)
-if (localMode) log(`  - 建立软链 node_modules/${PKG} → ${resolve(HERE)}`)
+if (localMode) log(`  - ${(await exists(linkPath)) ? '替换' : '建立'}软链 node_modules/${PKG} → ${resolve(HERE)}`)
 else log('  - 跑一次 pnpm install，再 pnpm update 拉到最新提交')
 log()
 log('注意：本脚本不会自动备份 package.json。要备份的话先自己复制一份。')
@@ -132,10 +132,11 @@ if (manifest.dsh?.profile?.bundles && !bundles.includes(PKG)) {
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 
 if (localMode) {
-    if (!(await exists(linkPath))) {
-        await mkdir(dirname(linkPath), { recursive: true })
-        await symlink(resolve(HERE), linkPath, process.platform === 'win32' ? 'junction' : 'dir')
-    }
+    // 原来是 GitHub 装的拷贝或旧软链都要换掉；只看存不存在会空跑还报「装好了」。
+    // rm 碰到软链只删链接本身，不会跟进去删本仓库。
+    await rm(linkPath, { recursive: true, force: true })
+    await mkdir(dirname(linkPath), { recursive: true })
+    await symlink(resolve(HERE), linkPath, process.platform === 'win32' ? 'junction' : 'dir')
     log('装好了。重启 dsh 之后：设置 → 插件 里会出现「Moss 生图」页。')
     process.exit(0)
 }
