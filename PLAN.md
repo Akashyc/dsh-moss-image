@@ -98,16 +98,17 @@ dsh-moss-image/
 | 连接 | `apiKey`（凭据引用，不落 config 明文） | 空 |
 | | `baseUrl` | `https://api.mosi.cn` |
 | | `timeoutMs` | 900000 |
-| 模型 | `model` | `moss-image-base-1.0` |
+| 模型 | `model` | `moss-image-sft-1.0` |
 | | `promptEnhance` | `false` |
 | 生图 | `size` | `1024x1024`（预设 1024x1024 / 1280x720 / 720x1280 / 1536x1024 / 1024x1536 / 2048x1024 / 1024x2048 + 自定义） |
 | | `negativePrompt` | `nsfw, worst quality, bad anatomy, watermark, jpeg artifact` |
-| | `numInferenceSteps` | 空（不传，用服务端默认） |
-| | `guidanceScale` | 空 |
-| | `seed` | 空（随机） |
+| | `numInferenceSteps` | `50`（留空则不传，用服务端默认） |
+| | `guidanceScale` | `3` |
+| | `seedMode` | `follow`（沿用本会话上一张；`random` 每张新抽；`fixed` 用 `seed`） |
+| | `seed` | 空（只在 `fixed` 模式下生效） |
 | | `outputWatermark` | `false` |
-| 落盘 | `saveToWorkspace` | `true` |
-| | `imagesDir` | `images`（相对工作区，可绝对路径） |
+| 落盘 | `pathMode` | `workspace`（相对会话工作区；`absolute` 固定绝对路径） |
+| | `imagesDir` | `images`（必填，须与 `pathMode` 对得上） |
 | | `fileNamePattern` | `{date}-{time}-{slug}` |
 
 约束：`size` 与 `seed` 在 UI 与工具层各校验一次；不合法在本地就拦，不发请求。
@@ -211,6 +212,18 @@ LICENSE 已就位且 README 的开源说明与实现一致。
     `/key` `/config` `/probe` `/try` 全部加同源校验；`image_generate` 补上 `slug` 参数。
 12. **空值语义分家**：`resolveConfig` 按字段区分「没填」和「填了空」——负向词、步数、引导系数、种子
     的空字符串是有效值（清空/不传），其余字段的空值回退默认，免得误清空把 baseUrl 拼成坏地址。
+13. **按官方指南调画质**（依据 MOSS-Image 的 HF 模型卡与 USERGUIDE）：默认模型换成 sft（base 没做后训练，
+    参数不对容易出废图）；步数/引导系数默认 50 / 3；工具描述让对话模型先把想法扩写成英文画面描述、
+    画面文字原样加引号，不堆质量词；negative_prompt / 步数 / 引导系数 用户没明说就不传；
+    模型另传的负向词追加到默认负向词后面，不再整组替换。
+14. **保存路径必填 + 模式开关**：去掉 `saveToWorkspace`，每张图都落盘；`pathMode` 显式区分相对工作区 / 绝对路径，
+    模式和目录对不上在设置页保存时就报错，运行时在调接口前再拦一次（不花冤枉钱）。`~` 开头算绝对路径并展开成家目录。
+    先存附件再落盘；写盘失败不算生图失败，退到缓存目录保住这张图并回显原因。撞名加 `-2` 序号，不覆盖。
+    设置页试生成在相对工作区模式下没有会话，只预览不落盘。老配置里 `imagesDir` 是绝对路径的，自动推断为 `absolute`。
+15. **种子按会话沿用**：`seedMode` 默认 `follow`，插件用 WeakMap 挂在会话对象上记住上一张的 seed/size/model，
+    只在成功出图后更新；工具多一个 `new_seed`（用户说「换一张」时传）。优先级：本次 `seed` > `new_seed` > 模式。
+    回显标明种子来源；沿用种子但尺寸或模型变了会提示构图会变。只存内存，重启 DSH 后每个会话第一张重新随机。
+    老配置里填过固定 `seed` 的，自动推断为 `fixed`。
 
 验证记录：
 

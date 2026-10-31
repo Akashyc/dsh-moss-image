@@ -2,15 +2,20 @@
 // 这里只测不联网、不碰 dsh 服务的部分，跑得动就说明校验和错误翻译没写歪。
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { resolve } from 'node:path'
 import {
     DEFAULT_NEGATIVE_PROMPT,
     LIMITS,
     buildRequest,
     explainError,
     fileNameFor,
+    imagesDirProblem,
     parseSize,
+    pickSeed,
     readImageUrl,
     resolveConfig,
+    resolveImagesDir,
+    upgradeOverrides,
     validateSettings,
     validateSize,
 } from '../lib/moss.js'
@@ -184,4 +189,62 @@ test('resolveConfig 分得清「没填」和「填了空」', () => {
     assert.equal(resolveConfig({}, {}, defaults).negativePrompt, 'nsfw')
     // schema 有值、覆盖层没填，用 schema 的值
     assert.equal(resolveConfig({}, { size: '864x1152' }, defaults).size, '864x1152')
+})
+
+test('imagesDirProblem 要求模式和目录对得上', () => {
+    assert.equal(imagesDirProblem('workspace', 'images'), '')
+    assert.equal(imagesDirProblem('absolute', '/data/moss'), '')
+    assert.equal(imagesDirProblem('absolute', '~/Pictures/moss'), '')
+    assert.match(imagesDirProblem('absolute', 'images'), /绝对路径/u)
+    assert.match(imagesDirProblem('workspace', '/data/moss'), /相对工作区/u)
+    // ~ 开头是家目录，不能当成工作区里叫 ~ 的文件夹
+    assert.match(imagesDirProblem('workspace', '~/Pictures'), /相对工作区/u)
+    assert.match(imagesDirProblem('workspace', '  '), /不能为空/u)
+    assert.match(imagesDirProblem('nope', 'images'), /保存位置/u)
+})
+
+test('resolveImagesDir 按模式解析目录', () => {
+    assert.deepEqual(resolveImagesDir('workspace', ' images ', '/work', '/home/u'), { ok: true, dir: resolve('/work', 'images') })
+    assert.deepEqual(resolveImagesDir('absolute', '~/Pictures/moss', '/work', '/home/u'), { ok: true, dir: '/home/u/Pictures/moss' })
+    assert.deepEqual(resolveImagesDir('absolute', '/data/moss', undefined, '/home/u'), { ok: true, dir: '/data/moss' })
+    // 没有会话（设置页试生成）：相对工作区模式无处可存，交给调用方不落盘
+    assert.deepEqual(resolveImagesDir('workspace', 'images', undefined, '/home/u'), { ok: true, dir: undefined })
+    assert.equal(resolveImagesDir('absolute', 'images', '/work', '/home/u').ok, false)
+})
+
+test('upgradeOverrides 从旧字段推断新模式，显式值不动', () => {
+    assert.equal(upgradeOverrides({ imagesDir: '/data/moss' }).pathMode, 'absolute')
+    assert.equal(upgradeOverrides({ imagesDir: 'images' }).pathMode, undefined)
+    assert.equal(upgradeOverrides({ imagesDir: '/data/moss', pathMode: 'workspace' }).pathMode, 'workspace')
+    assert.equal(upgradeOverrides({ seed: '42' }).seedMode, 'fixed')
+    assert.equal(upgradeOverrides({ seed: '' }).seedMode, undefined)
+    assert.equal(upgradeOverrides({ seed: '42', seedMode: 'follow' }).seedMode, 'follow')
+})
+
+test('pickSeed 按优先级挑种子并标出来源', () => {
+    const random = () => 7
+    // 本次指定压过一切
+    assert.deepEqual(pickSeed({ seed: 1, newSeed: true, mode: 'fixed', fixed: '42', last: 9, random }), { seed: 1, source: 'explicit' })
+    // 要求换种子压过模式
+    assert.deepEqual(pickSeed({ newSeed: true, mode: 'follow', last: 9, random }), { seed: 7, source: 'random' })
+    assert.deepEqual(pickSeed({ newSeed: true, mode: 'fixed', fixed: '42', random }), { seed: 7, source: 'random' })
+    // follow：有上一张就沿用，没有就新抽；0 也是合法的上一张
+    assert.deepEqual(pickSeed({ mode: 'follow', last: 9, random }), { seed: 9, source: 'follow' })
+    assert.deepEqual(pickSeed({ mode: 'follow', last: 0, random }), { seed: 0, source: 'follow' })
+    assert.deepEqual(pickSeed({ mode: 'follow', random }), { seed: 7, source: 'random' })
+    // fixed：用固定值；固定值没填就退回新抽
+    assert.deepEqual(pickSeed({ mode: 'fixed', fixed: '42', last: 9, random }), { seed: '42', source: 'fixed' })
+    assert.deepEqual(pickSeed({ mode: 'fixed', fixed: '', random }), { seed: 7, source: 'random' })
+    // random：无视上一张
+    assert.deepEqual(pickSeed({ mode: 'random', last: 9, random }), { seed: 7, source: 'random' })
+})
+
+test('validateSettings 交叉校验保存位置与种子模式', () => {
+    assert.deepEqual(validateSettings({ pathMode: 'absolute', imagesDir: '~/Pictures/moss' }).errors, [])
+    assert.match(validateSettings({ pathMode: 'absolute', imagesDir: 'images' }).errors.join(), /绝对路径/u)
+    assert.match(validateSettings({ pathMode: 'workspace', imagesDir: '/data' }).errors.join(), /相对工作区/u)
+    assert.match(validateSettings({ pathMode: 'elsewhere' }).errors.join(), /保存位置/u)
+    assert.match(validateSettings({ seedMode: 'fixed', seed: '' }).errors.join(), /固定种子/u)
+    assert.deepEqual(validateSettings({ seedMode: 'follow', seed: '' }).errors, [])
+    assert.match(validateSettings({ seedMode: 'sometimes' }).errors.join(), /种子模式/u)
 })
