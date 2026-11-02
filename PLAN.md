@@ -99,11 +99,14 @@ dsh-moss-image/
 | | `baseUrl` | `https://api.mosi.cn` |
 | | `timeoutMs` | 900000 |
 | 模型 | `model` | `moss-image-sft-1.0` |
-| | `promptEnhance` | `false` |
+| | `promptRewrite` | `false`（原文照传） |
+| | `promptEnglish` | `false` |
+| | `layoutEnabled` | `true` |
+| | `promptEnhance` | `true`（布局请求一律关） |
 | 生图 | `size` | `1024x1024`（预设 1024x1024 / 1280x720 / 720x1280 / 1536x1024 / 1024x1536 / 2048x1024 / 1024x2048 + 自定义） |
 | | `negativePrompt` | `nsfw, worst quality, bad anatomy, watermark, jpeg artifact` |
-| | `numInferenceSteps` | `50`（留空则不传，用服务端默认） |
-| | `guidanceScale` | `3` |
+| | `numInferenceSteps` | 空（不传，用服务端默认） |
+| | `guidanceScale` | 空 |
 | | `seedMode` | `follow`（沿用本会话上一张；`random` 每张新抽；`fixed` 用 `seed`） |
 | | `seed` | 空（只在 `fixed` 模式下生效） |
 | | `outputWatermark` | `false` |
@@ -231,6 +234,9 @@ LICENSE 已就位且 README 的开源说明与实现一致。
     中心坐标 `yxyx` 整数框并序列化为 prompt（依据 platform.moss.cn/docs/reference/layout-image-generation，单测逐字节复现官方示例）；
     布局请求强制 `prompt_enhance: false`，免得 JSON 被改写成散文。工具描述随这些设置（及默认尺寸）变化：
     `ctx.tools.register` 返回注销函数，设置保存后注销旧工具、按新设置重注册。
+17. **默认值对齐官方 Playground**（v1.3.0）：`promptRewrite` / `promptEnglish` 默认关（原文照传），
+    `promptEnhance` 默认开（交给服务端智能改写），`layoutEnabled` 默认开，步数/引导系数默认留空用服务端默认。
+    依据是同一段描述的实测对比：服务端改写出的构图比 DeepSeek 先扩写更丰富。
 
 验证记录：
 
