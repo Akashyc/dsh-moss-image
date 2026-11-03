@@ -4,6 +4,7 @@
 //
 //   node install.mjs                                  # 干跑（默认从 GitHub 装）
 //   node install.mjs --apply                          # 真装
+//   node install.mjs --ref feat/xxx --apply            # 装某个分支/标签（默认主干）
 //   node install.mjs --from local --apply             # 从本地目录装（开发时用）
 //   node install.mjs --profile desktop                # 指定 profile 名（默认 desktop）
 //   node install.mjs --pnpm /path/to/pnpm             # 指定 pnpm（默认找 PATH）
@@ -33,7 +34,10 @@ const profileName = valueOf('--profile', 'desktop')
 const profileDir = join(dshHome, 'profiles', profileName)
 const manifestPath = join(profileDir, 'package.json')
 const pnpmBin = valueOf('--pnpm', process.env.DSH_PNPM ?? 'pnpm')
-const depSpec = from === 'local' ? `file:${resolve(HERE)}` : GITHUB_SPEC
+const ref = valueOf('--ref', '')
+const depSpec = from === 'local'
+    ? `file:${resolve(HERE)}`
+    : ref === '' ? GITHUB_SPEC : `${GITHUB_SPEC}#${ref}`
 
 function log(line = '') {
     console.log(line)
