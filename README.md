@@ -136,6 +136,26 @@ npm run check
 图库接口自测：`GET /x-moss-image/library/list`、`GET /x-moss-image/library/file?rel=<相对路径>`（同源、只认保存目录里的 PNG）。
 设置页改了提示词或布局开关，保存后工具会重新注册，下一轮对话即按新规则写提示词。
 
+## 更新记录
+
+旧版本见 [Releases](https://github.com/Akashyc/dsh-moss-image/releases)。
+
+### 2.0.0 · 2026-11-03
+
+- 设置从「插件」标签搬到设置侧栏，独立一节「Moss 生图」
+- 新增「Moss 图库」：点开放大、上一张/下一张、改图、删除（进系统废纸篓）、多选、相册归档
+- 保存目录收敛为唯一绝对路径，设置页试生成也落这里；相册就是它下面一层文件夹
+- 新增四套可选画风，选中即把固定提示词拼在你描述最前面
+- 关掉「让 DeepSeek 优化提示词」后严格原文照传，想改措辞必须先问你；英文模式改为逐句忠实翻译
+- 改图沿用原种子与原尺寸，构图不跳
+
+升级注意：`pathMode` 已移除。老配置里配过相对目录的会被丢弃、回落到默认 `~/Pictures/Moss`；已配的绝对目录原样保留。升级后重启一次 dsh。
+
+```bash
+node install.mjs --apply              # 从主干升级
+node install.mjs --uninstall --apply  # 卸掉
+```
+
 ## 许可
 
 MIT，全文见 [LICENSE](LICENSE)。Copyright (c) 2026 Akashyc。
