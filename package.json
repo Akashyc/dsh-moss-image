@@ -1,9 +1,9 @@
 {
   "name": "dsh-moss-image",
-  "version": "1.3.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "Moss 文生图插件：在 dsh 里说一句要画什么，就出一张图",
+  "description": "Moss 文生图插件：在 dsh 里说一句要画什么，就出一张图；带图库、画风与相册",
   "license": "MIT",
   "author": "Akashyc",
   "main": "lib/index.js",

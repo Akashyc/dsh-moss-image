@@ -2,7 +2,9 @@
 // 这里只测不联网、不碰 dsh 服务的部分，跑得动就说明校验和错误翻译没写歪。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { resolve } from 'node:path'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
     DEFAULT_NEGATIVE_PROMPT,
     LIMITS,
@@ -21,6 +23,15 @@ import {
     validateSettings,
     validateSize,
 } from '../lib/moss.js'
+import { STYLES, applyStyle, styleById } from '../lib/styles.js'
+import {
+    createAlbum,
+    listLibrary,
+    moveFiles,
+    patchEntry,
+    readLibrary,
+    relProblem,
+} from '../lib/library.js'
 
 test('parseSize 接受常见写法', () => {
     assert.deepEqual(parseSize('1024x1024'), { width: 1024, height: 1024 })
@@ -193,31 +204,25 @@ test('resolveConfig 分得清「没填」和「填了空」', () => {
     assert.equal(resolveConfig({}, { size: '864x1152' }, defaults).size, '864x1152')
 })
 
-test('imagesDirProblem 要求模式和目录对得上', () => {
-    assert.equal(imagesDirProblem('workspace', 'images'), '')
-    assert.equal(imagesDirProblem('absolute', '/data/moss'), '')
-    assert.equal(imagesDirProblem('absolute', '~/Pictures/moss'), '')
-    assert.match(imagesDirProblem('absolute', 'images'), /绝对路径/u)
-    assert.match(imagesDirProblem('workspace', '/data/moss'), /相对工作区/u)
-    // ~ 开头是家目录，不能当成工作区里叫 ~ 的文件夹
-    assert.match(imagesDirProblem('workspace', '~/Pictures'), /相对工作区/u)
-    assert.match(imagesDirProblem('workspace', '  '), /不能为空/u)
-    assert.match(imagesDirProblem('nope', 'images'), /保存位置/u)
+test('imagesDirProblem 只认绝对路径', () => {
+    assert.equal(imagesDirProblem('/data/moss'), '')
+    assert.equal(imagesDirProblem('~/Pictures/Moss'), '')
+    assert.match(imagesDirProblem('images'), /完整路径/u)
+    assert.match(imagesDirProblem('  '), /不能为空/u)
 })
 
-test('resolveImagesDir 按模式解析目录', () => {
-    assert.deepEqual(resolveImagesDir('workspace', ' images ', '/work', '/home/u'), { ok: true, dir: resolve('/work', 'images') })
-    assert.deepEqual(resolveImagesDir('absolute', '~/Pictures/moss', '/work', '/home/u'), { ok: true, dir: '/home/u/Pictures/moss' })
-    assert.deepEqual(resolveImagesDir('absolute', '/data/moss', undefined, '/home/u'), { ok: true, dir: '/data/moss' })
-    // 没有会话（设置页试生成）：相对工作区模式无处可存，交给调用方不落盘
-    assert.deepEqual(resolveImagesDir('workspace', 'images', undefined, '/home/u'), { ok: true, dir: undefined })
-    assert.equal(resolveImagesDir('absolute', 'images', '/work', '/home/u').ok, false)
+test('resolveImagesDir 展开 ~，相对路径直接拦下', () => {
+    assert.deepEqual(resolveImagesDir('~/Pictures/Moss', '/home/u'), { ok: true, dir: '/home/u/Pictures/Moss' })
+    assert.deepEqual(resolveImagesDir(' /data/moss ', '/home/u'), { ok: true, dir: '/data/moss' })
+    assert.equal(resolveImagesDir('images', '/home/u').ok, false)
 })
 
-test('upgradeOverrides 从旧字段推断新模式，显式值不动', () => {
-    assert.equal(upgradeOverrides({ imagesDir: '/data/moss' }).pathMode, 'absolute')
-    assert.equal(upgradeOverrides({ imagesDir: 'images' }).pathMode, undefined)
-    assert.equal(upgradeOverrides({ imagesDir: '/data/moss', pathMode: 'workspace' }).pathMode, 'workspace')
+test('upgradeOverrides 丢掉旧版 pathMode 与相对目录', () => {
+    const migrated = upgradeOverrides({ pathMode: 'absolute', imagesDir: '/data/moss' })
+    assert.equal(migrated.pathMode, undefined)
+    assert.equal(migrated.imagesDir, '/data/moss')
+    // 老配置里的相对目录在新版无处可放：删掉走默认值
+    assert.equal(upgradeOverrides({ imagesDir: 'images' }).imagesDir, undefined)
     assert.equal(upgradeOverrides({ seed: '42' }).seedMode, 'fixed')
     assert.equal(upgradeOverrides({ seed: '' }).seedMode, undefined)
     assert.equal(upgradeOverrides({ seed: '42', seedMode: 'follow' }).seedMode, 'follow')
@@ -241,11 +246,12 @@ test('pickSeed 按优先级挑种子并标出来源', () => {
     assert.deepEqual(pickSeed({ mode: 'random', last: 9, random }), { seed: 7, source: 'random' })
 })
 
-test('validateSettings 交叉校验保存位置与种子模式', () => {
-    assert.deepEqual(validateSettings({ pathMode: 'absolute', imagesDir: '~/Pictures/moss' }).errors, [])
-    assert.match(validateSettings({ pathMode: 'absolute', imagesDir: 'images' }).errors.join(), /绝对路径/u)
-    assert.match(validateSettings({ pathMode: 'workspace', imagesDir: '/data' }).errors.join(), /相对工作区/u)
-    assert.match(validateSettings({ pathMode: 'elsewhere' }).errors.join(), /保存位置/u)
+test('validateSettings 校验保存目录、画风与种子模式', () => {
+    assert.deepEqual(validateSettings({ imagesDir: '~/Pictures/Moss' }).errors, [])
+    assert.match(validateSettings({ imagesDir: 'images' }).errors.join(), /完整路径/u)
+    assert.deepEqual(validateSettings({ style: '' }).errors, [])
+    assert.deepEqual(validateSettings({ style: 'ink-wash' }).errors, [])
+    assert.match(validateSettings({ style: 'nope' }).errors.join(), /画风/u)
     assert.match(validateSettings({ seedMode: 'fixed', seed: '' }).errors.join(), /固定种子/u)
     assert.deepEqual(validateSettings({ seedMode: 'follow', seed: '' }).errors, [])
     assert.match(validateSettings({ seedMode: 'sometimes' }).errors.join(), /种子模式/u)
@@ -294,7 +300,7 @@ test('buildRequest 用布局时发编译后的 JSON 并关掉智能改写', () =
     assert.equal(buildRequest({ prompt: '海报', size: '1024x1024', prompt_enhance: true }).body.prompt_enhance, true)
 })
 
-test('promptRules 四种开关组合写法各不相同', () => {
+test('promptRules 四种开关组合写法各不相同，关掉改写就要求原文', () => {
     const both = promptRules({ rewrite: true, english: true })
     assert.match(both, /英文描述/u)
     assert.match(both, /别默认写成白底/u)
@@ -302,5 +308,53 @@ test('promptRules 四种开关组合写法各不相同', () => {
     assert.match(promptRules({ rewrite: false, english: true }), /忠实翻译成英文/u)
     const raw = promptRules({ rewrite: false, english: false })
     assert.match(raw, /原样传入/u)
+    assert.match(raw, /一个字都别动/u)
+    // 想改措辞必须先问用户：这条是需求里的硬要求，掉了就等于允许模型私自改词
+    assert.match(raw, /等用户同意/u)
     assert.doesNotMatch(raw, /扩写成/u)
+    // 选了画风就告诉模型别自己再写风格词
+    assert.match(promptRules({ rewrite: false, english: false, styleLabel: '水墨' }), /画风由插件设置统一追加（当前：水墨）/u)
+})
+
+test('画风目录：拼在最前面，没选就一个字都不动', () => {
+    assert.equal(STYLES.length, 4)
+    assert.equal(styleById(''), undefined)
+    assert.equal(styleById('nope'), undefined)
+    assert.equal(styleById('ink-wash').label, '粗墨飞白写意水墨国画风')
+    assert.equal(applyStyle('', '一只猫'), '一只猫')
+    assert.equal(applyStyle(undefined, '一只猫'), '一只猫')
+    assert.equal(applyStyle('ink', '一只猫'), 'ink, 一只猫')
+    assert.equal(applyStyle('ink', '  一只猫  '), 'ink, 一只猫')
+    assert.equal(applyStyle('ink', ''), 'ink')
+})
+
+// 图库只有一层相册 + 平铺文件，元数据跟着文件搬。删图那条会动真废纸篓，这里不测。
+test('图库：列表、搬相册、元数据跟着走，越界路径一律拒', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'moss-lib-'))
+    try {
+        await writeFile(join(root, 'a.png'), 'a')
+        await writeFile(join(root, 'b.png'), 'b')
+        await patchEntry(root, 'a.png', { prompt: '猫', seed: 42 })
+
+        const first = await listLibrary(root, '')
+        assert.deepEqual(first.items.map((item) => item.rel).sort(), ['a.png', 'b.png'])
+        assert.equal(first.items.find((item) => item.rel === 'a.png').meta.prompt, '猫')
+
+        await createAlbum(root, '风景')
+        assert.deepEqual(await moveFiles(root, ['a.png'], '风景'), ['风景/a.png'])
+        const meta = await readLibrary(root)
+        assert.equal(meta['风景/a.png'].seed, 42)
+        assert.equal(meta['a.png'], undefined)
+
+        const inAlbum = await listLibrary(root, '风景')
+        assert.deepEqual(inAlbum.items.map((item) => item.rel), ['风景/a.png'])
+        assert.deepEqual(inAlbum.albums.map((album) => album.name), ['风景'])
+
+        for (const bad of ['../x.png', '/etc/x.png', 'a/../b.png', 'a/b/c.png', 'x.jpg', '..', '']) {
+            assert.notEqual(relProblem(bad), '', `应当拒绝 ${bad}`)
+        }
+        assert.equal(relProblem('风景/a.png'), '')
+    } finally {
+        await rm(root, { recursive: true, force: true })
+    }
 })

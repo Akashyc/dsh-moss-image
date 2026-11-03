@@ -246,3 +246,124 @@ LICENSE 已就位且 README 的开源说明与实现一致。
   pnpm 解析 58 个包、`+ dsh-moss-image 0.1.0`，`node_modules/dsh-moss-image` 里
   lib/、cordis.patch.yml、icon.svg、README、PLAN、LICENSE 齐全
 - 待人工验证：重启 dsh → 设置 → 插件 →「Moss 生图」
+
+## 12. v2 需求与落地方案（2026-11-03）
+
+状态：已实现（分支 `feat/gallery-v2`，v2.0.0）；12.9 四个问题 Boss 已拍板，P1–P8 全部落地。
+
+### 12.1 需求逐条
+
+| 编号 | 要的 | 目标 |
+|---|---|---|
+| R1 | 设置菜单从「插件页的 tab」移到设置侧边栏 | 「Moss 生图」成为设置左侧的独立分区 |
+| R2 | 侧栏加「Moss 图库」面板 | 管理所有生成的图：放大查看、改图、删除、多选、相册归档 |
+| R3 | 生图落盘统一成一个绝对路径 | 去掉「相对工作区」，只认一个绝对目录；相册＝该目录下的子文件夹 |
+| R4 | 设置里下拉选画风，默认不追加 | 发送前把画风提示词固定拼在 prompt 最前面 |
+| R5 | 没开「让 DeepSeek 优化提示词」时严格用原文 | 不改写、不翻译、不补细节；觉得该改先征得同意 |
+| R6 | 英文只做忠实翻译 | 逐句对应，不增删、不提炼、不改语气，画面文字保留原语言 |
+
+### 12.2 落点已核实（读的是 live 槽树，不是猜的）
+
+| 需求 | 落点 | 契约 |
+|---|---|---|
+| R1 | `settings.section`（list，root） | 注册 `{ id, order, label }`；说明原文：「One settings page per list entry」。现有占位：account -10 / general 0 / models 10 / plugins 15 / agent-presets 20 / preset-visibility 21 / claude-style 22 / startup-screen 26 / chat-wallpaper 27 / agent-soul 40 / market 40 / agent-huanqi 64 / desktop 100 |
+| R2 图标 | `sidebar.panellist`（list，root） | `{ id, order, label }`；说明原文：「Each list id addresses the matching main panel; the sidebar owns the button and resolves its label from list metadata」；图标组件收到 `{ size, active }` |
+| R2 面板 | `main`（keyed，root） | `{ key }`，key 必须等于侧栏那个 id；已有占位 plugins/conversation/schedules/mnemon/mnemon-skills |
+| R2 跳转 | `ctx.layout.selectPanel(id)` | 客户端要 `inject` 里加 `layout`（待 P0 验证） |
+| 数据 | 现有 `/x-moss-image/*` 本地路由 | 已带 `sameOrigin` 校验，新增 `library/*` 子路由即可 |
+
+可抄的现成实现：`dsh-mnemon` 的 `ctx.slots.inject('main', () => ctx.slots.inject('sidebar.panellist', ...))` 嵌套注册；`dshmarket` 的 `settings.section` 注册写法。
+
+### 12.3 文件与数据模型（R3）
+
+```
+<imagesDir，绝对路径>              ← 唯一落盘根，所有会话共用
+├─ 20261103-1826-foo-s12873.png   ← 未归档的图直接躺根目录
+├─ 风景/                           ← 相册 = 子文件夹（一层，不嵌套）
+│  └─ 20261103-1830-bar-s99.png
+└─ library.json                   ← 元数据覆盖层，只补文件系统给不出的东西
+```
+
+- 文件系统是真相：图库按目录扫盘，不靠索引；`library.json` 只补 `prompt / negative / size / seed / model / styleId / createdAt`。
+- 没有元数据的老图（或手动丢进来的图）：照常展示，**改图按钮禁用**并写清原因。
+- 图库只碰 `imagesDir` 下的 `.png`：拒绝 `..`、绝对路径、符号链接逃逸；删和移只动该目录内的文件。
+
+### 12.4 接口（沿用同一个本地前缀）
+
+| 方法 | 路径 | 作用 |
+|---|---|---|
+| GET | `/library/list?album=` | 相册列表 + 当前目录的图 + 元数据 |
+| GET | `/library/file?rel=` | 出图（仅限 imagesDir 内 .png） |
+| POST | `/library/delete` `{ rels }` | 删除（前端二次确认） |
+| POST | `/library/move` `{ rels, album }` | 移到相册，空 = 根目录 |
+| POST | `/library/album` `{ name }` | 新建相册目录，重名拒绝 |
+| POST | `/library/regenerate` `{ rel, prompt }` | 改图：重画一张（会花钱，同源 + 前端确认） |
+
+全部沿用 `sameOrigin`；`regenerate` 复用现有 `generate()`，不再走一遍新逻辑。
+
+### 12.5 代码落点
+
+| 文件 | 改什么 |
+|---|---|
+| `lib/styles.js`（新） | 4 种画风的 `{ id, label, prompt }`，内容搬自 `画图风格提示词/`；打包进插件，不读外部目录 |
+| `lib/moss.js` | 删 `PATH_MODES` / `pathMode`；`resolveImagesDir` 只走绝对路径；`promptRules` 按 R5/R6 重写；新增 `applyStyle()`、`safeRel()`、`mergeLibrary()` 纯函数（好测） |
+| `lib/index.js` | Config 去 `pathMode`、加 `style`；`generate()` 拼画风、写 `library.json`；路由加 `library/*` |
+| `lib/client.js` | `SettingsTab` → `SettingsSection`（`settings.section`）+ 画风下拉 + 落盘文案；新增 `GalleryPanel`（`sidebar.panellist` + `main`）：相册栏、缩略图网格、点击放大（ESC 关）、多选、删除、移动、改图 |
+| `test/moss.test.mjs` | 补画风前缀、绝对路径校验、路径穿越、元数据合并 |
+
+### 12.6 迁移
+
+| 旧值 | 新行为 |
+|---|---|
+| `pathMode = workspace` + 相对目录 | 换成默认绝对目录，保存时提示一次「路径模式已取消」 |
+| `pathMode = absolute` | 原样保留 |
+| 老图散在各工作区 | 不动文件，图库只认新目录；要归档自己拖过去 |
+| 老图无元数据 | 展示可以，改图不行 |
+
+默认绝对目录：`~/Pictures/Moss`（Windows 用家目录下的 `Pictures\Moss`，一律走 `os.homedir()` 拼）。
+
+### 12.7 分阶段与验收（验收先定，再动手）
+
+| 阶段 | 做什么 | 验收 |
+|---|---|---|
+| P0 | profile 指向本地目录 + 重启，摸清 client 改动要不要重启 | 改一句界面文案能在页面上看到；把真实结论记下来 |
+| P1 | R1：注册 `settings.section`，删 `plugins.tab` | 设置左侧出现「Moss 生图」，原面板功能可用；插件页不再有该 tab |
+| P2 | R3：绝对路径 + 相册目录 + 迁移 | 只填一个绝对目录；生图落该目录；旧配置升级有提示 |
+| P3 | R4：画风下拉 + 前置拼接 | 选画风后发出的 prompt 以画风词开头；不选时与现在逐字一致 |
+| P4 | R5/R6：`promptRules` 与工具描述重写 | 文案读得通；对话里实测一次原文生图，提示词没被改过 |
+| P5 | 元数据 + `/library/*` 接口 | 接口逐个通；越界路径被拒；删/移只动目录内文件 |
+| P6 | R2：图库面板 | 侧栏有图标；点开有图；放大/ESC/多选/删除/建相册/移动逐项可用 |
+| P7 | 改图 | 从图库带出原提示词，改完重画，落到同一相册，列表刷新 |
+| P8 | `node --check` + `node --test` + README/PLAN 更新 | 全绿，文档与实现一致 |
+
+### 12.8 风险与取舍
+
+| 项 | 判断 |
+|---|---|
+| 侧栏面板在 Electron 里的顶部拖拽区 | mnemon 加了 `data-window-drag` 带；实测需要就补一条 |
+| 画风也改了提示词 | 是 Boss 明确选的，不算「私自改」；回显里写明「已追加画风 X」 |
+| 改图 = 重新生成 | Moss 只有文生图 + 布局生图，接口层没有图生图 |
+| 删除是真删 | 不进系统废纸篓（跨平台成本高），前端二次确认 |
+| 相册只有一层 | 不做嵌套；要树再升级 |
+| 客户端 ctx 只能 `get/on/provide/effect` | `ctx.slots` 是 `inject: ['slots']` 带进来的；`ctx.layout` 同理，P0 验 |
+
+### 12.9 Boss 拍板（2026-11-03，已按此实现）
+
+1. 「改图」= 改提示词后重新画一张，**必须沿用原种子**（尺寸也用原图的），构图才不会跳。
+2. 删除**要二次确认**，并且**进系统废纸篓 / 回收站**，不做硬删。
+3. 默认绝对目录 `~/Pictures/Moss`，可以。
+4. 相册**一层就够**（保存目录下的子文件夹）。
+
+另：设置页「试生成」的图也存进这个唯一目录（boss 追加，2026-11-03）。
+
+### 12.10 实现记录（v2.0.0）
+
+| 文件 | 做了什么 |
+| --- | --- |
+| `lib/styles.js` | 四套画风（id / 名字 / 固定提示词串），`applyStyle()` 只在选了画风时拼在最前 |
+| `lib/moss.js` | 删 `PATH_MODES` / `pathMode`；`resolveImagesDir(dir, home)` 只认绝对路径；`promptRules` 重写 R5（原文照传 + 想改先问）/ R6（逐句忠实翻译）；`validateSettings` 校验目录与画风 |
+| `lib/library.js` | 列表（相册 + 平铺文件）、建相册、移动（跨盘复制再删）、进废纸篓、`library.json` 元数据、`relProblem` 路径穿越拦截、`safeFile` 符号链接逃逸拦截 |
+| `lib/index.js` | Config 去 `pathMode`、加 `style`；`generate()` 拼画风、按图记元数据；新增 `/library/{list,file,delete,move,album,regenerate}`；`/state` 回 `styles` 与 `imagesRoot` |
+| `lib/client.js` | 设置从「插件」标签改成侧栏一节（`settings.section`，order 45）；新增侧栏 `Moss 图库` + 主面板（放大、上一张/下一张、改图、删除、多选、相册）；设置里加画风下拉 |
+
+验收证据：`node --test` 28 项全绿；隔离 HOME 下的宿主路由冒烟（list / album / move / regenerate 拒绝无元数据 / 路径逃逸拦截 / state）全部符合预期。
