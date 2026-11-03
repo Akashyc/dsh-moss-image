@@ -367,3 +367,23 @@ LICENSE 已就位且 README 的开源说明与实现一致。
 | `lib/client.js` | 设置从「插件」标签改成侧栏一节（`settings.section`，order 45）；新增侧栏 `Moss 图库` + 主面板（放大、上一张/下一张、改图、删除、多选、相册）；设置里加画风下拉 |
 
 验收证据：`node --test` 28 项全绿；隔离 HOME 下的宿主路由冒烟（list / album / move / regenerate 拒绝无元数据 / 路径逃逸拦截 / state）全部符合预期。
+
+
+### 12.11 v2.1.0 图库文件夹化（2026-11-03）
+
+Boss 拍板的交互：不做左侧导航栏，相册当文件夹排进列表、双击进入；文件不改名（只有相册能改名）；框选要做；
+新建/改名相册走右键就地输入；样式参考 liquid-glass-web，但只借视觉语言。
+
+| 改动 | 位置 |
+| --- | --- |
+| 元数据升 v2：`{version:2, files, albums}`，旧平铺格式读取时兼容 | `lib/library.js` |
+| 相册带 `coverRel / coverPinned / count / size`；列表项带 `kind`；总大小 `totalSize` | `listLibrary` |
+| 新增 `renameAlbum`（目录改名 + 键前缀 + 封面跟着改，元数据写失败会回滚目录名） | `lib/library.js` |
+| 新增 `deleteAlbum(name, withFiles)`：`false` 时图移回根、`true` 时进废纸篓；有非 PNG 就拒绝并返回清单 | `lib/library.js` |
+| 新增 `setAlbumCover`：显式封面只在图仍在该相册时有效，否则自动回退最新一张 | `lib/library.js` |
+| 新路由 `/library/album/rename`、`/library/album/delete`、`/library/album/cover` | `lib/index.js` |
+| 图库面板重写：文件夹磁贴、双击进入、面包屑、框选、右键三套菜单、就地新建/改名、排序、状态栏、毛玻璃外壳 | `lib/client.js` |
+
+取舍：**没上 SVG 折射**（`backdrop-filter: url(#svg)`）。它要按元素尺寸逐像素生成位移贴图、只有 Chromium 支持、窗口变化要重算；
+图库里带背景模糊的元素一多就掉帧。这一版用「毛玻璃 + 内高光 + 弹簧过渡」拿到九成观感，磁贴不做 backdrop-filter。
+真要折射，单独一轮只给查看器做（同屏 1 个元素，成本可控）。

@@ -2,7 +2,7 @@
 // 这里只测不联网、不碰 dsh 服务的部分，跑得动就说明校验和错误翻译没写歪。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -26,11 +26,14 @@ import {
 import { STYLES, applyStyle, styleById } from '../lib/styles.js'
 import {
     createAlbum,
+    deleteAlbum,
     listLibrary,
     moveFiles,
     patchEntry,
     readLibrary,
     relProblem,
+    renameAlbum,
+    setAlbumCover,
 } from '../lib/library.js'
 
 test('parseSize 接受常见写法', () => {
@@ -343,17 +346,124 @@ test('图库：列表、搬相册、元数据跟着走，越界路径一律拒',
         await createAlbum(root, '风景')
         assert.deepEqual(await moveFiles(root, ['a.png'], '风景'), ['风景/a.png'])
         const meta = await readLibrary(root)
-        assert.equal(meta['风景/a.png'].seed, 42)
-        assert.equal(meta['a.png'], undefined)
+        assert.equal(meta.files['风景/a.png'].seed, 42)
+        assert.equal(meta.files['a.png'], undefined)
 
         const inAlbum = await listLibrary(root, '风景')
         assert.deepEqual(inAlbum.items.map((item) => item.rel), ['风景/a.png'])
-        assert.deepEqual(inAlbum.albums.map((album) => album.name), ['风景'])
+        // 相册只出现在根目录那一层（像资源管理器：文件夹只显示在它所在的那层）
+        assert.deepEqual(inAlbum.albums, [])
+        assert.deepEqual((await listLibrary(root, '')).albums.map((album) => album.name), ['风景'])
 
         for (const bad of ['../x.png', '/etc/x.png', 'a/../b.png', 'a/b/c.png', 'x.jpg', '..', '']) {
             assert.notEqual(relProblem(bad), '', `应当拒绝 ${bad}`)
         }
         assert.equal(relProblem('风景/a.png'), '')
+    } finally {
+        await rm(root, { recursive: true, force: true })
+    }
+})
+
+test('library.json 从 v1 平铺自动升到 v2 形状', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'moss-v1-'))
+    try {
+        await writeFile(join(root, 'a.png'), 'a')
+        await writeFile(join(root, 'library.json'), JSON.stringify({ 'a.png': { prompt: '猫', seed: 7 } }))
+        const data = await readLibrary(root)
+        assert.equal(data.files['a.png'].prompt, '猫')
+        assert.deepEqual(data.albums, {})
+        // 写一次就落成 v2
+        await patchEntry(root, 'b.png', { prompt: '狗' })
+        const saved = JSON.parse(await readFile(join(root, 'library.json'), 'utf8'))
+        assert.equal(saved.version, 2)
+        assert.equal(saved.files['a.png'].seed, 7)
+    } finally {
+        await rm(root, { recursive: true, force: true })
+    }
+})
+
+test('图库：相册带封面和大小，默认用最新一张', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'moss-cover-'))
+    try {
+        await mkdir(join(root, '风景'))
+        await writeFile(join(root, '风景', 'old.png'), 'old')
+        await writeFile(join(root, '风景', 'new.png'), 'newer')
+        await utimes(join(root, '风景', 'old.png'), new Date(1000), new Date(1000))
+        await utimes(join(root, '风景', 'new.png'), new Date(5000), new Date(5000))
+        await writeFile(join(root, 'top.png'), 'top')
+
+        const rootList = await listLibrary(root, '')
+        assert.deepEqual(rootList.albums.map((entry) => entry.name), ['风景'])
+        assert.equal(rootList.albums[0].count, 2)
+        assert.equal(rootList.albums[0].size, 8)
+        assert.equal(rootList.albums[0].coverRel, '风景/new.png')
+        assert.equal(rootList.albums[0].coverPinned, false)
+        assert.deepEqual(rootList.items.map((item) => item.kind), ['image'])
+        assert.equal(rootList.totalSize, 11)
+
+        // 手工指定封面
+        await setAlbumCover(root, '风景', '风景/old.png')
+        const pinned = (await listLibrary(root, '')).albums[0]
+        assert.equal(pinned.coverRel, '风景/old.png')
+        assert.equal(pinned.coverPinned, true)
+
+        // 封面图被搬走：自动回退到还在相册里的那张，不报错
+        await moveFiles(root, ['风景/old.png'], '')
+        const after = (await listLibrary(root, '')).albums[0]
+        assert.equal(after.coverRel, '风景/new.png')
+        assert.equal(after.coverPinned, false)
+    } finally {
+        await rm(root, { recursive: true, force: true })
+    }
+})
+
+test('相册改名：目录、元数据键、封面一起改', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'moss-rename-'))
+    try {
+        await mkdir(join(root, '旧名'))
+        await writeFile(join(root, '旧名', 'x.png'), 'x')
+        await patchEntry(root, '旧名/x.png', { prompt: '山', seed: 42 })
+        await setAlbumCover(root, '旧名', '旧名/x.png')
+
+        assert.equal(await renameAlbum(root, '旧名', '新名'), '新名')
+        const data = await readLibrary(root)
+        assert.equal(data.files['旧名/x.png'], undefined)
+        assert.equal(data.files['新名/x.png'].seed, 42)
+        assert.equal(data.albums['新名'].cover, '新名/x.png')
+        assert.equal(data.albums['旧名'], undefined)
+
+        // 改名后「改图」还认得提示词
+        const listed = await listLibrary(root, '新名')
+        assert.equal(listed.items[0].rel, '新名/x.png')
+        assert.equal(listed.items[0].meta.prompt, '山')
+        // 重名要拦下
+        await assert.rejects(() => createAlbum(root, '旧名').then(() => renameAlbum(root, '新名', '旧名')))
+    } finally {
+        await rm(root, { recursive: true, force: true })
+    }
+})
+
+test('删相册：图挪回根目录，非 png 挡着就不删', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'moss-delalbum-'))
+    try {
+        await mkdir(join(root, '人像'))
+        await writeFile(join(root, '人像', 'a.png'), 'a')
+        await writeFile(join(root, '人像', 'b.png'), 'b')
+        await patchEntry(root, '人像/a.png', { prompt: '猫' })
+
+        const result = await deleteAlbum(root, '人像', false)
+        assert.equal(result.ok, true)
+        assert.equal(result.movedToRoot.length, 2)
+        assert.deepEqual((await listLibrary(root, '')).items.map((item) => item.rel).sort(), ['a.png', 'b.png'])
+
+        // 有非 png 的东西：不删，返回清单
+        await mkdir(join(root, '杂物'))
+        await writeFile(join(root, '杂物', 'c.png'), 'c')
+        await writeFile(join(root, '杂物', 'note.txt'), 'x')
+        const blocked = await deleteAlbum(root, '杂物', false)
+        assert.equal(blocked.ok, undefined)
+        assert.deepEqual(blocked.leftover, ['note.txt'])
+        assert.equal((await listLibrary(root, '')).albums.length, 1)
     } finally {
         await rm(root, { recursive: true, force: true })
     }
