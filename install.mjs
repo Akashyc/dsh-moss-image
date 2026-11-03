@@ -141,7 +141,7 @@ if (localMode) {
     await rm(linkPath, { recursive: true, force: true })
     await mkdir(dirname(linkPath), { recursive: true })
     await symlink(resolve(HERE), linkPath, process.platform === 'win32' ? 'junction' : 'dir')
-    log('装好了。重启 dsh 之后：设置 → 插件 里会出现「Moss 生图」页。')
+    log('装好了。重启 dsh 之后：设置侧栏会出现「Moss 生图」，侧栏会出现「Moss 图库」。')
     process.exit(0)
 }
 
@@ -157,4 +157,4 @@ if (!(await exists(linkPath))) {
     console.error(`\npnpm 跑完了，但 ${linkPath} 还是不存在。检查 GitHub 仓库是否可访问、包名是否写对。`)
     process.exit(1)
 }
-log('装好了。重启 dsh 之后：设置 → 插件 里会出现「Moss 生图」页。')
+log('装好了。重启 dsh 之后：设置侧栏会出现「Moss 生图」，侧栏会出现「Moss 图库」。')
